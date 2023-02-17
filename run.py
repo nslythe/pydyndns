@@ -2,6 +2,10 @@ import CloudFlare
 import requests
 import json
 import os
+import datetime
+import logging
+import signal
+import threading
 
 ip_urls = {
     "https://ifconfig.net" : "json",
@@ -9,35 +13,79 @@ ip_urls = {
     "https://ipinfo.io/ip" : "str"
 }
 
-API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("CLOUDFLARE_API_KEY")
+ZONE_NAME = os.getenv("ZONE_NAME")
+HOST_NAME = os.getenv("HOST_NAME")
+
+LOOP_TIME = 10
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+
+event = threading.Event()
+def handler(signum, frame):
+    logging.info(f"Received signal STOPPING")
+    event.set()
+
 
 def main():
-    current_ip = get_current_ip()
-    if current_ip is not None:
-        renew_ip = get_renew_ip(current_ip, force = True)
-        if renew_ip is not None:
-            update_cloudflare(renew_ip)
-    else:
-        print ("error getting public ip")
+    signal.signal(signal.SIGINT, handler)
+    if API_KEY is None or ZONE_NAME is None or HOST_NAME is None:
+        logging.error("You need to define env variable API_KEY, ZONE_NAME and HOST_NAME")
+        return
+    while True:
+        do_update(hostname = HOST_NAME, zone_name = ZONE_NAME)
+        if event.wait(LOOP_TIME):
+            break
 
-def update_cloudflare(renew_ip):
+
+def do_update(hostname, zone_name, force = False):
+    try:
+        current_ip = get_current_ip()
+        logging.info("Discovered current IP : %s", current_ip)
+        if current_ip is not None:
+            renew_ip = get_renew_ip(current_ip, force = force)
+            if renew_ip is not None:
+                logging.info("Will renew with : %s (force:%s)", current_ip, force)
+                update_cloudflare(renew_ip, hostname = hostname, zone_name = zone_name, create_if_record_doesnot_exists = True)
+                logging.info("Updated : %s.%s -> %s", hostname, zone_name, renew_ip)
+            else:
+                logging.info("No update same has cache")
+        else:
+            logging.error("Unable to get public ip")
+    except Exception as e:
+        logging.error(e)
+
+
+def update_cloudflare(renew_ip, *, hostname, zone_name, create_if_record_doesnot_exists = False):
     cf = CloudFlare.CloudFlare(key=API_KEY)
-    zone_name = "slythe.net"
     zones = cf.zones.get(params={'name': zone_name})
     if len(zones) != 1:
-        raise Exception("Zones not found")
+        raise Exception(f"Zone {zone_name} not found")
     zone = zones[0]
 
-    dns_records = cf.zones.dns_records.get(zone["id"], params={'name':"h1a" + '.' + zone_name})
+    dns_records = cf.zones.dns_records.get(zone["id"], params={'name':hostname + '.' + zone_name})
     if len(dns_records) != 1:
-        raise Exception("Zones record not found")
-    dns_record = dns_records[0]
-    
-    if dns_record["content"] == renew_ip:
-        raise Exception("Same IP no update to do")
-
-    dns_record["content"] = renew_ip
-    dns_record = cf.zones.dns_records.put(zone["id"], dns_record["id"], data = dns_record)
+        if create_if_record_doesnot_exists:            
+            r = cf.zones.dns_records.post(zone["id"], data=
+                {'name':hostname,
+                 'type':'A',
+                 'content': renew_ip})
+            print (r)
+        else:
+            raise Exception(f"Zones {hostname} record not found in zone {zone_name}")
+    else:
+        dns_record = dns_records[0]
+        if dns_record["content"] == renew_ip:
+            raise Exception(f"Record : {hostname}.{zone_name} already have ip : {renew_ip}")
+        
+        dns_record["content"] = renew_ip
+        dns_record = cf.zones.dns_records.put(zone["id"], dns_record["id"], data = dns_record)
 
 
 def get_current_ip():
@@ -68,6 +116,7 @@ def get_current_ip():
     
     return ip
 
+
 def get_renew_ip(current_ip, force = False):
     ip_cached_fle_path = "ip_cached"
     renew_ip = None
@@ -82,11 +131,13 @@ def get_renew_ip(current_ip, force = False):
 
     if (cached_ip != current_ip) or force:
         with open(ip_cached_fle_path, "w") as f:
-            json.dump({"ip": current_ip}, f)
+            json.dump({
+                "ip": current_ip,
+                "date" : datetime.datetime.now().timestamp()
+                }, f)
         renew_ip = current_ip
 
     return renew_ip
-
 
 
 if __name__ == '__main__':
