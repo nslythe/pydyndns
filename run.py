@@ -16,8 +16,11 @@ ip_urls = {
 API_KEY = os.getenv("CLOUDFLARE_API_KEY")
 ZONE_NAME = os.getenv("ZONE_NAME")
 HOST_NAME = os.getenv("HOST_NAME")
+HOST_NAME = os.getenv("HOST_NAME")
+TTL = int(os.getenv("TTL", 0)) * 60
 
-LOOP_TIME = 10
+
+LOOP_TIME = 15
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,12 +42,12 @@ def main():
         logging.error("You need to define env variable API_KEY, ZONE_NAME and HOST_NAME")
         return
     while True:
-        do_update(hostname = HOST_NAME, zone_name = ZONE_NAME)
+        do_update(hostname = HOST_NAME, zone_name = ZONE_NAME, ttl = TTL)
         if event.wait(LOOP_TIME):
             break
 
 
-def do_update(hostname, zone_name, force = False):
+def do_update(hostname, zone_name, ttl, force = False):
     try:
         current_ip = get_current_ip()
         logging.info("Discovered current IP : %s", current_ip)
@@ -52,7 +55,7 @@ def do_update(hostname, zone_name, force = False):
             renew_ip = get_renew_ip(current_ip, force = force)
             if renew_ip is not None:
                 logging.info("Will renew with : %s (force:%s)", current_ip, force)
-                update_cloudflare(renew_ip, hostname = hostname, zone_name = zone_name, create_if_record_doesnot_exists = True)
+                update_cloudflare(renew_ip, hostname = hostname, zone_name = zone_name, ttl = ttl, create_if_record_doesnot_exists = True, force = force)
                 logging.info("Updated : %s.%s -> %s", hostname, zone_name, renew_ip)
             else:
                 logging.info("No update same has cache")
@@ -62,7 +65,7 @@ def do_update(hostname, zone_name, force = False):
         logging.error(e)
 
 
-def update_cloudflare(renew_ip, *, hostname, zone_name, create_if_record_doesnot_exists = False):
+def update_cloudflare(renew_ip, *, hostname, zone_name, ttl = None, create_if_record_doesnot_exists = False, force = False):
     cf = CloudFlare.CloudFlare(key=API_KEY)
     zones = cf.zones.get(params={'name': zone_name})
     if len(zones) != 1:
@@ -71,20 +74,23 @@ def update_cloudflare(renew_ip, *, hostname, zone_name, create_if_record_doesnot
 
     dns_records = cf.zones.dns_records.get(zone["id"], params={'name':hostname + '.' + zone_name})
     if len(dns_records) != 1:
-        if create_if_record_doesnot_exists:            
-            r = cf.zones.dns_records.post(zone["id"], data=
-                {'name':hostname,
+        if create_if_record_doesnot_exists:         
+            data = {'name':hostname,
                  'type':'A',
-                 'content': renew_ip})
-            print (r)
+                 'content': renew_ip}
+            if ttl > 60:
+                data["ttl"] = ttl
+            r = cf.zones.dns_records.post(zone["id"], data=data)
         else:
             raise Exception(f"Zones {hostname} record not found in zone {zone_name}")
     else:
         dns_record = dns_records[0]
-        if dns_record["content"] == renew_ip:
+        if dns_record["content"] == renew_ip and not force:
             raise Exception(f"Record : {hostname}.{zone_name} already have ip : {renew_ip}")
         
         dns_record["content"] = renew_ip
+        if ttl > 60:
+            dns_record["ttl"] = ttl
         dns_record = cf.zones.dns_records.put(zone["id"], dns_record["id"], data = dns_record)
 
 
