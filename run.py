@@ -85,12 +85,12 @@ def update_cloudflare(renew_ip, *, hostname, zone_name, ttl = None, create_if_re
     else:
         dns_record = dns_records[0]
         if dns_record["content"] == renew_ip and not force:
-            raise Exception(f"Record : {hostname}.{zone_name} already have ip : {renew_ip}")
-        
-        dns_record["content"] = renew_ip
-        if ttl > 60:
-            dns_record["ttl"] = ttl
-        dns_record = cf.zones.dns_records.put(zone["id"], dns_record["id"], data = dns_record)
+            logging.error(f"Record : {hostname}.{zone_name} already have ip : {renew_ip}")
+        else:
+            dns_record["content"] = renew_ip
+            if ttl > 60:
+                dns_record["ttl"] = ttl
+            dns_record = cf.zones.dns_records.put(zone["id"], dns_record["id"], data = dns_record)
 
 
 def get_current_ip():
