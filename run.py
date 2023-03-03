@@ -19,7 +19,7 @@ HOST_NAME = os.getenv("HOST_NAME")
 TTL = int(os.getenv("TTL", 0)) * 60
 
 
-LOOP_TIME = 15
+LOOP_TIME = TTL
 
 logging.basicConfig(
     level=logging.INFO,
