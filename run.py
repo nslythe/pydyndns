@@ -41,27 +41,27 @@ def main():
         logging.error("You need to define env variable API_KEY, ZONE_NAME and HOST_NAME")
         return
     while True:
-        do_update(hostname = HOST_NAME, zone_name = ZONE_NAME, ttl = TTL)
+        try:
+            do_update(hostname = HOST_NAME, zone_name = ZONE_NAME, ttl = TTL)
+        except Exception as e:
+            logging.exception(e)
         if event.wait(LOOP_TIME):
             break
-
+    logging.info("pydyndns has quit")
 
 def do_update(hostname, zone_name, ttl, force = False):
-    try:
-        current_ip = get_current_ip()
-        logging.info("Discovered current IP : %s", current_ip)
-        if current_ip is not None:
-            renew_ip = get_renew_ip(current_ip, force = force)
-            if renew_ip is not None:
-                logging.info("Will renew with : %s (force:%s)", current_ip, force)
-                update_cloudflare(renew_ip, hostname = hostname, zone_name = zone_name, ttl = ttl, create_if_record_doesnot_exists = True, force = force)
-                logging.info("Updated : %s.%s -> %s", hostname, zone_name, renew_ip)
-            else:
-                logging.info("No update same has cache")
+    current_ip = get_current_ip()
+    logging.info("Discovered current IP : %s", current_ip)
+    if current_ip is not None:
+        renew_ip = get_renew_ip(current_ip, force = force)
+        if renew_ip is not None:
+            logging.info("Will renew with : %s (force:%s)", current_ip, force)
+            update_cloudflare(renew_ip, hostname = hostname, zone_name = zone_name, ttl = ttl, create_if_record_doesnot_exists = True, force = force)
+            logging.info("Updated : %s.%s -> %s", hostname, zone_name, renew_ip)
         else:
-            logging.error("Unable to get public ip")
-    except Exception as e:
-        logging.error(e)
+            logging.info("No update same has cache")
+    else:
+        logging.error("Unable to get public ip")
 
 
 def update_cloudflare(renew_ip, *, hostname, zone_name, ttl = None, create_if_record_doesnot_exists = False, force = False):
