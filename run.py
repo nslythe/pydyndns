@@ -16,7 +16,7 @@ ip_urls = {
 API_KEY = os.getenv("CLOUDFLARE_API_KEY")
 ZONE_NAME = os.getenv("ZONE_NAME")
 HOST_NAME = os.getenv("HOST_NAME")
-TTL = int(os.getenv("TTL", 0)) * 60
+TTL = int(os.getenv("TTL", 1)) * 60
 
 
 LOOP_TIME = TTL
