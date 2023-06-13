@@ -102,8 +102,9 @@ def get_current_ip():
         t = ip_urls[url]
         if t == "json":
             response = requests.get(url, headers={"Accept": "application/json"})
-            obj = response.json()
-            found_ip = obj["ip"].strip()
+            if response.status_code == requests.codes.ok:
+                obj = response.json()
+                found_ip = obj["ip"].strip()
         elif t == "str":
             response = requests.get(url)
             found_ip = response.content.strip()
